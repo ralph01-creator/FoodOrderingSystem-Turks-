@@ -1,0 +1,18 @@
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
+package com.restaurant;
+
+import javax.swing.*;
+import java.awt.print.PrinterException;
+
+public class PrintReceipt {
+    public static void print(JTextArea receiptArea) {
+        try {
+            receiptArea.print();
+        } catch (PrinterException e) {
+            JOptionPane.showMessageDialog(null, "Printing failed!", "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+}

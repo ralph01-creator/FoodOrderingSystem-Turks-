@@ -1,0 +1,36 @@
+package com.restaurant;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
+public class ReceiptGenerator {
+    private static final String HEADER =
+        "====================================\n" +
+        "        TURKS RESTAURANT            \n" +
+        "====================================\n";
+
+    private static final String FOOTER =
+        "------------------------------------\n" +
+        "Subtotal: ₱%.2f\n" +
+        "Customer Payment: ₱%.2f\n" +
+        "Change: ₱%.2f\n" +
+        "====================================\n" +
+        "    THANK YOU! COME AGAIN!       \n" +
+        "====================================\n";
+
+    public static String generateReceipt(int tableNumber, String orderType, List<String> itemsOrdered, 
+                                       double totalAmount, double customerPayment, double change) {
+        StringBuilder receipt = new StringBuilder(HEADER);
+        receipt.append("Order Type: ").append(orderType).append("\n");
+        receipt.append("Table #: ").append(tableNumber).append("\n");
+        receipt.append("Date: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n");
+        receipt.append("------------------------------------\n");
+
+        for (String item : itemsOrdered) {
+            receipt.append(item).append("\n");
+        }
+
+        return receipt.append(String.format(FOOTER, totalAmount, customerPayment, change)).toString();
+    }
+}

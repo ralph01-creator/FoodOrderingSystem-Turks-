@@ -1,0 +1,891 @@
+package com.restaurant;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.print.PrinterException;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.io.IOException;
+import javax.imageio.ImageIO;
+import java.net.URL;
+
+public class OrderSystem extends JFrame {
+    private JPanel mainPanel, menuPanel, orderPanel, categoryPanel, logoPanel, topPanel;
+    private JTextArea receiptArea;
+    private JComboBox<String> tableSelector;
+    private JLabel totalLabel, grandTotalLabel, changeLabel, paymentLabel; // Removed customerLabel
+    private double totalAmount = 0.0;
+    private Map<String, Integer> itemQuantities = new HashMap<>();
+    private List<String> orderedItemsList = new ArrayList<>();
+    private int tableNumber;
+    private String fullReceiptText;
+    private Map<String, Double> itemPrices = new HashMap<>();
+    private JTextField paymentField;
+    private double customerPayment = 0.0;
+    private JMenuBar menuBar;
+    private JComboBox<String> orderTypeSelector;
+    private JLabel orderTypeLabel;
+
+
+    // Database credentials and connection
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/ralphrestaurant_db";
+    private static final String DB_USER = "root"; // Replace with your username
+    private static final String DB_PASS = ""; // Replace with your password
+
+    // Constructor
+    public OrderSystem() {
+        setTitle("Turks Ordering System");
+        setSize(1000, 600);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
+        initializeDatabaseViews();
+        //testDatabaseConnection();
+
+        // Show Splash Screen
+        JPanel splashScreen = createSplashScreenPanel();
+        add(splashScreen);
+        setVisible(true);
+
+        // Use a Timer to simulate loading and transition to the main UI
+        Timer timer = new Timer(1500, e -> {
+            if (splashScreen != null) {
+                remove(splashScreen); // Remove the splash screen
+                initializeMainUI();   // Initialize and show the main application UI
+                revalidate();
+                repaint();
+            } else {
+                System.err.println("Splash screen is null!");
+            }
+        });
+        timer.setRepeats(false); // Run only once
+        timer.start();
+    }
+    private List<MenuItem> getMenuItemsWithImages(String category) {
+        List<MenuItem> menuItems = new ArrayList<>();
+        
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+             PreparedStatement pstmt = conn.prepareStatement(
+                 "SELECT name, price, image_path FROM menu_items WHERE category = ?")) {
+            
+            pstmt.setString(1, category);
+            ResultSet rs = pstmt.executeQuery();
+
+            while (rs.next()) {
+                menuItems.add(new MenuItem(
+                    rs.getString("name"),
+                    rs.getDouble("price"),
+                    rs.getString("image_path")
+                ));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        
+        return menuItems;
+    }
+
+    private JPanel createSplashScreenPanel() {
+        JPanel splashPanel = new JPanel(new BorderLayout());
+        splashPanel.setBackground(new Color(204,204,204)); // Green background
+
+        // Logo
+        URL logoURL = getClass().getResource("/com/restaurant/images/turkslogo.png");
+        if (logoURL == null) {
+            System.err.println("Logo image not found!");
+            return splashPanel; // Return early if the logo is not found
+        }
+        ImageIcon imageIcon = new ImageIcon(logoURL);
+
+        Image image = imageIcon.getImage();
+        Image newImage = image.getScaledInstance(200, 200, Image.SCALE_SMOOTH);
+        ImageIcon scaledImageIcon = new ImageIcon(newImage);
+        JLabel logoLabel = new JLabel(scaledImageIcon);
+        logoLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        splashPanel.add(logoLabel, BorderLayout.CENTER);
+
+        // Loading Message
+        JLabel loadingLabel = new JLabel("Wait......", SwingConstants.CENTER);
+        loadingLabel.setFont(new Font("Arial", Font.BOLD, 18));
+        loadingLabel.setForeground(Color.WHITE);
+        splashPanel.add(loadingLabel, BorderLayout.SOUTH);
+
+        return splashPanel;
+    }
+
+    private void initializeMainUI() {
+    // Initialize item prices from MySQL
+    initializeItemPricesFromDB();
+    
+    // Initialize menu bar FIRST
+    menuBar = new JMenuBar();
+    setupReportsMenu();
+    this.setJMenuBar(menuBar);
+
+    // Main Panels
+    mainPanel = createPanel(new BorderLayout(), new Color(0, 0, 0)); // Black background for elegance
+    menuPanel = createPanel(new GridLayout(2, 4, 10, 10), new Color(204,204,204)); // Turks Red with Transparency
+    orderPanel = createPanel(new BorderLayout(), new Color(0, 0, 0)); // Black for contrast
+    categoryPanel = createPanel(new GridLayout(1, 5, 5, 5), new Color(255,255,255)); // for a premium feel
+
+    logoPanel = createLogoPanel();
+    topPanel = new JPanel();
+    topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+
+    // Categories
+    String[] categories = {"Pita Wraps", "Rice Meals", "Value Meals", "Best Selling"};
+    for (String category : categories) {
+        JButton categoryButton = createButton(category, new Color(0, 0, 0), new CategoryListener(category)); // Black button
+        categoryButton.setForeground(Color.WHITE);
+         categoryButton.setFont(new Font("Arial", Font.BOLD, 15));// White text for readability
+        categoryPanel.add(categoryButton);
+    }
+
+    // Rest of your initialization code remains the same...
+    categoryPanel.setBackground(Color.WHITE);
+
+    // Order Panel
+    receiptArea = new JTextArea();
+    receiptArea.setEditable(false);
+    JScrollPane scrollPane = new JScrollPane(receiptArea);
+    totalLabel = new JLabel("Subtotal: ₱0.00");
+    grandTotalLabel = new JLabel("Total: ₱0.00");
+
+    // Table Selection
+    JPanel tablePanel = new JPanel();
+    tablePanel.add(new JLabel("Order #:"));
+    tableSelector = new JComboBox<>(new String[]{"1", "2", "3", "4", "5", "6", "7","8","9","10"});
+    tablePanel.add(tableSelector);
+    JPanel orderTypePanel = new JPanel();
+orderTypeLabel = new JLabel("Order Type:");
+orderTypeSelector = new JComboBox<>(new String[]{"Dine-in", "Take-out"});
+orderTypePanel.add(orderTypeLabel);
+orderTypePanel.add(orderTypeSelector);
+tablePanel.add(orderTypePanel);
+// In initializeMainUI():
+orderTypeLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+orderTypeLabel.setForeground(new Color(0,0,0));
+orderTypeSelector.setFont(new Font("Arial", Font.PLAIN, 14));
+
+    // Buttons
+    JPanel buttonPanel = new JPanel(new FlowLayout());
+    buttonPanel.setBackground(Color.WHITE);
+
+    JButton clearOrder = createButton("Clear Order", new Color(0, 0, 0), e -> clearOrder());
+    JButton checkoutButton = createButton("Checkout", new Color(0, 0, 0), e -> checkoutOrder());
+    JButton deleteItemButton = createButton("Delete Item", new Color(0, 0, 0), e -> deleteLastItem());
+
+    clearOrder.setForeground(Color.WHITE);
+    checkoutButton.setForeground(Color.WHITE);
+    deleteItemButton.setForeground(Color.WHITE);
+
+    paymentLabel = new JLabel("Enter Payment: ₱ ");
+    paymentField = new JTextField(10);
+    paymentLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+    paymentLabel.setForeground(new Color(0,0,0));
+
+    changeLabel = new JLabel("Change: ₱ 0.00");
+    changeLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+    changeLabel.setForeground(new Color(0,0,0));
+
+    paymentField.addActionListener(new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            try {
+                customerPayment = Double.parseDouble(paymentField.getText());
+                updateChangeLabel(customerPayment);
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(OrderSystem.this, "Invalid payment amount.", "Error", JOptionPane.ERROR_MESSAGE);
+                paymentField.setText("");
+                customerPayment = 0.0;
+                updateChangeLabel(customerPayment);
+            }
+        }
+    });
+    
+    buttonPanel.add(paymentLabel);
+    buttonPanel.add(paymentField);
+    buttonPanel.add(changeLabel);
+    buttonPanel.add(deleteItemButton);
+    buttonPanel.add(clearOrder);
+    buttonPanel.add(checkoutButton);
+
+    JPanel totalPanel = new JPanel(new GridLayout(2, 1));
+    totalPanel.add(totalLabel);
+    totalPanel.add(grandTotalLabel);
+
+    JPanel bottomPanel = new JPanel(new BorderLayout());
+    bottomPanel.add(totalPanel, BorderLayout.NORTH);
+    bottomPanel.add(buttonPanel, BorderLayout.CENTER);
+
+    orderPanel.add(tablePanel, BorderLayout.NORTH);
+    orderPanel.add(scrollPane, BorderLayout.CENTER);
+    orderPanel.add(bottomPanel, BorderLayout.SOUTH);
+
+    // Layout
+    topPanel.add(logoPanel);
+    topPanel.add(categoryPanel);
+
+    if (mainPanel != null && topPanel != null && menuPanel != null && orderPanel != null) {
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+        mainPanel.add(menuPanel, BorderLayout.CENTER);
+        mainPanel.add(orderPanel, BorderLayout.EAST);
+    } else {
+        System.err.println("One or more main panels are null!");
+    }
+
+    add(mainPanel);
+}
+    private JPanel createPanel(LayoutManager layout, Color background) {
+        JPanel panel = new JPanel(layout);
+        panel.setBackground(background);
+        return panel;
+    }
+
+    private JButton createButton(String text, Color background, ActionListener listener) {
+        JButton button = new JButton(text);
+        
+
+        // Apply  background color instead of white for contrast with red
+        if (background.equals(new Color(216, 30, 5, 180))) {
+            button.setBackground(new Color(255,255,255)); // background
+            button.setForeground(Color.BLACK); // Black text for readability
+        } else {
+            button.setBackground(background);
+            button.setForeground(Color.WHITE);
+        }
+
+        button.setFont(new Font("Arial", Font.BOLD, 14));
+        button.setFocusPainted(false); // Removes focus border for better aesthetics
+        button.addActionListener(listener);
+
+        return button;
+    }
+
+    private JPanel createLogoPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        panel.setBackground(new Color(255,255,255));
+
+        URL logoURL = getClass().getResource("/com/restaurant/images/turkslogo.png");
+        if (logoURL == null) {
+            System.err.println("Logo image not found!");
+            return panel;
+        }
+
+        ImageIcon imageIcon = new ImageIcon(logoURL);
+        Image image = imageIcon.getImage();
+        Image newImage = image.getScaledInstance(200, 200, Image.SCALE_SMOOTH);
+        ImageIcon scaledImageIcon = new ImageIcon(newImage);
+
+        JLabel logoLabel = new JLabel(scaledImageIcon);
+        panel.add(logoLabel);
+
+        return panel;
+    }
+
+    private void initializeItemPricesFromDB() {
+    itemPrices = new HashMap<>();
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+         Statement stmt = conn.createStatement();
+         ResultSet rs = stmt.executeQuery("SELECT name, price FROM menu_items")) {
+
+        while (rs.next()) {
+            itemPrices.put(rs.getString("name"), rs.getDouble("price"));
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+}
+
+
+    private class CategoryListener implements ActionListener {
+        private String category;
+
+        public CategoryListener(String category) {
+            this.category = category;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            displayMenuItems(category);
+        }
+    }
+
+    private void displayMenuItems(String category) {
+    menuPanel.removeAll();
+    // Use 4 columns with equal spacing
+    menuPanel.setLayout(new GridLayout(0, 4, 15, 15)); 
+    menuPanel.setBackground(new Color(240, 240, 240)); 
+
+    List<MenuItem> menuItems = getMenuItemsWithImages(category);
+
+    for (MenuItem item : menuItems) {
+        // 1. Create the Image Button (200x200 fixed size)
+        JButton itemButton = new JButton();
+        itemButton.setPreferredSize(new Dimension(200, 200));
+        itemButton.setLayout(new BorderLayout());
+        itemButton.setBorder(BorderFactory.createEmptyBorder());
+        itemButton.setContentAreaFilled(false);
+        itemButton.setFocusPainted(false);
+
+        // 2. Load and Scale Image (200x200)
+        ImageIcon icon = null;
+        try {
+            URL imageUrl = getClass().getResource("/com/restaurant/images/menu/" + item.getImagePath());
+            if (imageUrl != null) {
+                icon = new ImageIcon(imageUrl);
+                Image scaledImage = icon.getImage().getScaledInstance(200, 200, Image.SCALE_SMOOTH);
+                icon = new ImageIcon(scaledImage);
+            }
+        } catch (Exception e) {
+            System.err.println("Error loading image: " + item.getImagePath());
+        }
+
+        // 3. Image Label (Centered)
+        JLabel imageLabel = new JLabel(icon);
+        imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        itemButton.add(imageLabel, BorderLayout.CENTER);
+
+        // 4. Text Overlay Panel (Bottom-aligned)
+        JPanel textPanel = new JPanel();
+        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
+        textPanel.setOpaque(false);
+        textPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 15, 10));
+
+        // Item Name (Top)
+        JLabel nameLabel = new JLabel(item.getName().toUpperCase());
+        nameLabel.setFont(new Font("Arial", Font.BOLD, 11));
+        nameLabel.setForeground(Color.BLACK);
+        nameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        // Price (Bottom)
+        JLabel priceLabel = new JLabel("P" + String.format("%.2f", item.getPrice()));
+        priceLabel.setFont(new Font("Arial", Font.BOLD, 13));
+        priceLabel.setForeground(Color.BLACK);
+        priceLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        textPanel.add(nameLabel);
+        textPanel.add(Box.createRigidArea(new Dimension(0, 5))); // Spacing
+        textPanel.add(priceLabel);
+
+        // 5. Add Text Panel to Button (South position)
+        itemButton.add(textPanel, BorderLayout.SOUTH);
+
+        // 6. Add Hover Effect
+        itemButton.addMouseListener(new MouseAdapter() {
+            public void mouseEntered(MouseEvent e) {
+                textPanel.setOpaque(true);
+                textPanel.setBackground(new Color(0, 0, 0, 150)); // Semi-transparent
+                itemButton.repaint();
+            }
+            public void mouseExited(MouseEvent e) {
+                textPanel.setOpaque(false);
+                itemButton.repaint();
+            }
+        });
+
+        // 7. Add Click Action
+        itemButton.addActionListener(e -> addItemToOrder(item.getName()));
+
+        menuPanel.add(itemButton);
+    }
+
+    menuPanel.revalidate();
+    menuPanel.repaint();
+}
+
+    private void addItemToOrder(String itemName) {
+        itemQuantities.put(itemName, itemQuantities.getOrDefault(itemName, 0) + 1);
+        orderedItemsList.add(itemName);
+        updateReceiptArea();
+        updateTotalLabels();
+    }
+
+    private void updateReceiptArea() {
+        receiptArea.setText("");
+        StringBuilder receiptText = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : itemQuantities.entrySet()) {
+            String itemName = entry.getKey();
+            int quantity = entry.getValue();
+            double price = getItemPrice(itemName);
+            double itemTotal = price * quantity;
+            receiptText.append(itemName).append(" x ").append(quantity)
+                    .append(" - ₱").append(String.format("%.2f", itemTotal)).append("\n");
+        }
+        receiptArea.setText(receiptText.toString());
+    }
+
+    private void printReceipt() {
+    tableNumber = Integer.parseInt((String) tableSelector.getSelectedItem());
+    double customerChange = customerPayment - totalAmount; // Calculate change
+
+    try {
+        new JTextArea(fullReceiptText).print();
+        // Call saveOrderToDatabase with the correct number of parameters
+        saveOrderToDatabase(tableNumber, itemQuantities, totalAmount, customerPayment, customerChange);
+    } catch (PrinterException e) {
+        JOptionPane.showMessageDialog(null, "Printing failed!", "Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+
+
+public class MenuItem {
+    private String name;
+    private double price;
+    private String imagePath;
+
+    public MenuItem(String name, double price, String imagePath) {
+        this.name = name;
+        this.price = price;
+        this.imagePath = imagePath;
+    }
+
+    // Getters
+    public String getName() { return name; }
+    public double getPrice() { return price; }
+    public String getImagePath() { return imagePath; }
+}
+    private void clearOrder() {
+        receiptArea.setText("");
+        totalAmount = 0.0;
+        updateTotalLabels();
+        itemQuantities.clear();
+        orderedItemsList.clear();
+        paymentField.setText("");
+        customerPayment = 0.0;
+        updateChangeLabel(customerPayment);
+    }
+
+    private void checkoutOrder() {
+    try {
+        tableNumber = Integer.parseInt((String) tableSelector.getSelectedItem());
+        String orderType = (String) orderTypeSelector.getSelectedItem(); // Get selected order type
+
+        List<String> itemsOrderedForRecord = new ArrayList<>();
+        StringBuilder receiptText = new StringBuilder();
+
+        for (Map.Entry<String, Integer> entry : itemQuantities.entrySet()) {
+            String itemName = entry.getKey();
+            int quantity = entry.getValue();
+            double price = getItemPrice(itemName);
+            double itemTotal = price * quantity;
+
+            itemsOrderedForRecord.add(itemName + " x " + quantity + " - ₱" + String.format("%.2f", itemTotal));
+            receiptText.append(itemName).append(" x ").append(quantity)
+                    .append(" - ₱").append(String.format("%.2f", itemTotal)).append("\n");
+        }
+
+        // Calculate change
+        double customerChange = customerPayment - totalAmount;
+        if (customerChange < 0) {
+            JOptionPane.showMessageDialog(this, "Insufficient payment.", "Error", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Generate receipt with order type
+        fullReceiptText = ReceiptGenerator.generateReceipt(tableNumber, orderType, itemsOrderedForRecord, 
+                                                         totalAmount, customerPayment, customerChange);
+        orderedItemsList = itemsOrderedForRecord;
+        showReceiptDialog("Receipt", fullReceiptText);
+
+        // Save order (now including customer change and order type)
+        // In checkoutOrder(), after generating the receipt:
+        saveOrderToDatabase(tableNumber, itemQuantities, totalAmount, customerPayment, customerChange);
+
+        if (JOptionPane.showConfirmDialog(this, "Clear order?", "Confirmation", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+            clearOrder();
+        }
+    } catch (NumberFormatException e) {
+        JOptionPane.showMessageDialog(this, "Invalid input. Please check your payment amount.", "Error", JOptionPane.ERROR_MESSAGE);
+        paymentField.setText("");
+        customerPayment = 0.0;
+        updateChangeLabel(customerPayment);
+    }
+}
+
+
+
+    private double calculateTotalAmount() {
+        double total = 0.0;
+        for (Map.Entry<String, Integer> entry : itemQuantities.entrySet()) {
+            String itemName = entry.getKey();
+            int quantity = entry.getValue();
+            double price = getItemPrice(itemName);
+            total += price * quantity;
+        }
+        return total;
+    }
+
+    private void showReceiptDialog(String title, String text) {
+    JDialog receiptDialog = new JDialog(this, title, true);
+    JPanel contentPanel = new JPanel();
+    contentPanel.setLayout(new BorderLayout());
+
+    JTextArea receiptPopup = new JTextArea(text);
+    receiptPopup.setEditable(false);
+    receiptPopup.setFont(new Font("Monospaced", Font.PLAIN, 12));
+    JScrollPane scrollPane = new JScrollPane(receiptPopup);
+    scrollPane.setPreferredSize(new Dimension(350, 250));
+    contentPanel.add(scrollPane, BorderLayout.CENTER);
+
+    JPanel buttonPanel = new JPanel();
+    JButton printButton = createButton("PRINT", Color.decode("#FFD700"), new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            printReceipt();
+            receiptDialog.dispose();
+        }
+    });
+    
+    JButton cancelOrderButton = createButton("CANCEL", Color.decode("#FF0000"), new ActionListener() {
+        public void actionPerformed(ActionEvent e) {
+            // Delete the order from database
+            deleteOrderFromDatabase();
+            // Clear the current order
+            clearOrder();
+            receiptDialog.dispose();
+        }
+    });
+
+    buttonPanel.add(printButton);
+    buttonPanel.add(cancelOrderButton);
+
+    contentPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+    receiptDialog.setContentPane(contentPanel);
+    receiptDialog.pack();
+    receiptDialog.setLocationRelativeTo(this);
+    receiptDialog.setVisible(true);
+}
+
+// Add this new method to delete the order from database
+private void deleteOrderFromDatabase() {
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS)) {
+        String query = "DELETE FROM orders WHERE table_number = ? ORDER BY order_date DESC LIMIT 1";
+        PreparedStatement stmt = conn.prepareStatement(query);
+        stmt.setInt(1, tableNumber);
+        stmt.executeUpdate();
+    } catch (SQLException e) {
+        e.printStackTrace();
+        JOptionPane.showMessageDialog(this, "Error deleting order from database", "Database Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+    private double getItemPrice(String itemName) {
+        return itemPrices.getOrDefault(itemName, 0.0);
+    }
+
+    private String[][] getMenuItems(String category) {
+    List<String[]> menuItemsList = new ArrayList<>();
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+         PreparedStatement pstmt = conn.prepareStatement("SELECT name, price FROM menu_items WHERE category = ?")) {
+
+        pstmt.setString(1, category);
+        ResultSet rs = pstmt.executeQuery();
+
+        while (rs.next()) {
+            menuItemsList.add(new String[]{rs.getString("name"), rs.getString("price")});
+        }
+    } catch (SQLException e) {
+        e.printStackTrace(); // Print error to console
+    }
+
+    return menuItemsList.toArray(new String[0][0]);
+}
+
+    private void deleteLastItem() {
+        if (!orderedItemsList.isEmpty()) {
+            String lastItem = orderedItemsList.remove(orderedItemsList.size() - 1);
+            itemQuantities.computeIfPresent(lastItem, (key, val) -> (val > 1) ? val - 1 : null);
+            updateReceiptArea();
+            updateTotalLabels();
+        } else {
+            JOptionPane.showMessageDialog(this, "No items to delete.");
+        }
+    }
+
+    private void updateChangeLabel(double paymentAmount) {
+        double change = paymentAmount - totalAmount;
+        changeLabel.setText("Change: ₱" + String.format("%.2f", change));
+    }
+
+    private void updateTotalLabels() {
+        totalAmount = calculateTotalAmount();
+        totalLabel.setText("Subtotal: ₱" + String.format("%.2f", totalAmount));
+        grandTotalLabel.setText("Total: ₱" + String.format("%.2f", totalAmount));
+    }
+    
+    private void showSimpleSalesReport(String periodType) {
+    String query = "";
+    String title = "";
+    
+    switch(periodType) {
+        case "Daily":
+            query = "SELECT * FROM daily_sales ORDER BY sale_date DESC LIMIT 30";
+            title = "Last 30 Days Sales";
+            break;
+        case "Weekly":
+    query = "SELECT " +
+            "CONCAT('Week ', week_number) AS period, " +
+            "total_sales, " +
+            "order_count, " +
+            "week_start, " +
+            "week_end " +
+            "FROM weekly_sales ORDER BY week_number DESC LIMIT 12";
+    title = "Last 12 Weeks Sales";
+    break;
+        case "Monthly":
+            query = "SELECT * FROM monthly_sales ORDER BY month DESC LIMIT 12";
+            title = "Last 12 Months Sales";
+            break;
+        case "Annual":
+            query = "SELECT * FROM annual_sales ORDER BY year DESC";
+            title = "Annual Sales";
+            break;
+    }
+    
+    StringBuilder report = new StringBuilder();
+    report.append(title).append("\n\n");
+    report.append(String.format("%-15s %-15s %-15s\n", "Period", "Total Sales", "Orders"));
+    report.append("-------------------------------------\n");
+    
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+         Statement stmt = conn.createStatement();
+         ResultSet rs = stmt.executeQuery(query)) {
+        
+        while (rs.next()) {
+    String period;
+    if ("Weekly".equals(periodType)) {
+        period = String.format("%s (%s to %s)",
+            rs.getString("period"),
+            rs.getDate("week_start"),
+            rs.getDate("week_end"));
+    } else {
+        period = rs.getString(1);
+    }
+    double total = rs.getDouble(2);
+    int orders = rs.getInt(3);
+    
+    report.append(String.format("%-25s ₱%-15.2f %-15d\n", 
+        period, total, orders));
+}
+        
+    } catch (SQLException e) {
+        e.printStackTrace();
+        JOptionPane.showMessageDialog(this, "Error generating report: " + e.getMessage(),
+            "Database Error", JOptionPane.ERROR_MESSAGE);
+        return;
+    }
+    
+    JTextArea textArea = new JTextArea(report.toString());
+    JOptionPane.showMessageDialog(this, new JScrollPane(textArea), 
+        title, JOptionPane.PLAIN_MESSAGE);
+}
+
+    private void saveOrderToDatabase(int tableNumber, Map<String, Integer> itemQuantities, 
+                               double totalAmount, double customerPayment, 
+                               double customerChange) {
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS)) {
+        // Convert items to a formatted string
+        StringBuilder itemsOrdered = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : itemQuantities.entrySet()) {
+            String itemName = entry.getKey();
+            int quantity = entry.getValue();
+            double price = getItemPrice(itemName);
+            double itemTotal = price * quantity;
+
+            itemsOrdered.append(itemName)
+                       .append(" x ")
+                       .append(quantity)
+                       .append(" - ₱")
+                       .append(String.format("%.2f", itemTotal))
+                       .append(", ");
+        }
+
+        // Remove the last comma and space
+        if (itemsOrdered.length() > 0) {
+            itemsOrdered.setLength(itemsOrdered.length() - 2);
+        }
+
+        // Get the selected order type
+        String orderType = (String) orderTypeSelector.getSelectedItem();
+
+        // Debug output
+        System.out.println("Attempting to save order:");
+        System.out.println("Table: " + tableNumber);
+        System.out.println("Items: " + itemsOrdered);
+        System.out.println("Total: " + totalAmount);
+        System.out.println("Payment: " + customerPayment);
+        System.out.println("Change: " + customerChange);
+        System.out.println("Type: " + orderType);
+
+        // Insert order details into the orders table
+        String query = "INSERT INTO orders (table_number, items_ordered, total_amount, " +
+                      "customer_payment, customer_change, order_date, order_type) " +
+                      "VALUES (?, ?, ?, ?, ?, NOW(), ?)";
+        
+        try (PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, tableNumber);
+            stmt.setString(2, itemsOrdered.toString());
+            stmt.setDouble(3, totalAmount);
+            stmt.setDouble(4, customerPayment);
+            stmt.setDouble(5, customerChange);
+            stmt.setString(6, orderType);
+
+            int rowsAffected = stmt.executeUpdate();
+            System.out.println("Rows affected: " + rowsAffected);
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+        JOptionPane.showMessageDialog(this, 
+            "Error saving order to database: " + e.getMessage(), 
+            "Database Error", JOptionPane.ERROR_MESSAGE);
+    }
+}
+private void setupReportsMenu() {
+    // Remove any existing components from menuBar
+    menuBar.removeAll();
+    
+    // Create Reports button
+    JButton reportsButton = new JButton("Reports");
+    reportsButton.addActionListener(e -> {
+        JPopupMenu reportsMenu = new JPopupMenu();
+        
+        // Create report menu items
+        JMenuItem dailyItem = new JMenuItem("Daily Sales");
+        JMenuItem weeklyItem = new JMenuItem("Weekly Sales");
+        JMenuItem monthlyItem = new JMenuItem("Monthly Sales");
+        JMenuItem annualItem = new JMenuItem("Annual Sales");
+        
+        // Add action listeners
+        dailyItem.addActionListener(ev -> showSimpleSalesReport("Daily"));
+        weeklyItem.addActionListener(ev -> showSimpleSalesReport("Weekly"));
+        monthlyItem.addActionListener(ev -> showSimpleSalesReport("Monthly"));
+        annualItem.addActionListener(ev -> showSimpleSalesReport("Annual"));
+        
+        // Add items to popup menu
+        reportsMenu.add(dailyItem);
+        reportsMenu.add(weeklyItem);
+        reportsMenu.add(monthlyItem);
+        reportsMenu.add(annualItem);
+        
+        // Show popup below the button
+        reportsMenu.show(reportsButton, 0, reportsButton.getHeight());
+    });
+    
+    // Create Inventory button
+    JButton inventoryButton = new JButton("Inventory");
+    inventoryButton.addActionListener(e -> {
+        JOptionPane.showMessageDialog(this, "Soon!", "Inventory Management", JOptionPane.INFORMATION_MESSAGE);
+    });
+    JButton performanceButton = new JButton("Performance");
+    performanceButton.addActionListener(e -> {
+        JOptionPane.showMessageDialog(this, "Soon!", "Employee Performance Tracking", JOptionPane.INFORMATION_MESSAGE);
+    });
+    // Style both buttons to match your theme
+    // Create buttons array
+JButton[] buttons = {reportsButton, inventoryButton, performanceButton};
+
+// Style and add buttons to menu bar with consistent spacing
+for (int i = 0; i < buttons.length; i++) {
+    JButton button = buttons[i];
+    
+    // Style the button
+    button.setBackground(new Color(0, 0, 0)); // Black background
+    button.setForeground(Color.WHITE); // White text
+    button.setFont(new Font("Arial", Font.BOLD, 14));
+    button.setFocusPainted(false);
+    button.setBorder(BorderFactory.createCompoundBorder(
+        BorderFactory.createEmptyBorder(5, 15, 5, 15), // Outer padding
+        BorderFactory.createEmptyBorder(2, 5, 2, 5)    // Inner padding
+    ));
+    
+    // Add button to menu bar
+    menuBar.add(button);
+    
+    // Add spacing after each button except the last one
+    if (i < buttons.length - 1) {
+        menuBar.add(Box.createRigidArea(new Dimension(15, 0)));
+    }
+}
+
+// Add glue to push buttons to the left if needed
+menuBar.add(Box.createHorizontalGlue());
+    
+    // Refresh the menu bar
+    menuBar.revalidate();
+    menuBar.repaint();
+}
+// Helper function to get menu_item_id
+private int getMenuItemId(String itemName, Connection conn) throws SQLException {
+    String query = "SELECT id FROM menu_items WHERE LOWER(name) = LOWER(?)";
+    try (PreparedStatement stmt = conn.prepareStatement(query)) {
+        stmt.setString(1, itemName);
+        ResultSet rs = stmt.executeQuery();
+        if (rs.next()) {
+            // "id" is the column name in the table
+            return rs.getInt("id"); 
+        } else {
+            // Handle if not found
+            System.err.println("Error: Menu item not found for " + itemName);
+            return -1; 
+        }
+    }
+}
+// Add this method to create database views when the application starts
+private void initializeDatabaseViews() {
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
+         Statement stmt = conn.createStatement()) {
+        
+        // Create daily sales view
+        stmt.executeUpdate("CREATE OR REPLACE VIEW daily_sales AS " +
+    "SELECT DATE(order_date) AS sale_date, " +
+    "SUM(total_amount) AS total_sales, " +
+    "COUNT(*) AS order_count, " +
+    "order_type " +  // Add this line
+    "FROM orders GROUP BY DATE(order_date), order_type");
+            
+        // Create weekly sales view
+        stmt.executeUpdate("CREATE OR REPLACE VIEW weekly_sales AS " +
+       "SELECT YEARWEEK(order_date) AS week_number, " +
+       "SUM(total_amount) AS total_sales, " +  // This should be first for numeric value
+       "COUNT(*) AS order_count, " +
+       "MIN(DATE(order_date)) AS week_start, " +  // Date fields moved after numeric ones
+       "MAX(DATE(order_date)) AS week_end " +
+       "FROM orders GROUP BY YEARWEEK(order_date)");
+            
+        // Create monthly sales view
+        stmt.executeUpdate("CREATE OR REPLACE VIEW monthly_sales AS " +
+            "SELECT DATE_FORMAT(order_date, '%Y-%m') AS month, " +
+            "SUM(total_amount) AS total_sales, " +
+            "COUNT(*) AS order_count " +
+            "FROM orders GROUP BY DATE_FORMAT(order_date, '%Y-%m')");
+            
+        // Create annual sales view
+        stmt.executeUpdate("CREATE OR REPLACE VIEW annual_sales AS " +
+            "SELECT YEAR(order_date) AS year, " +
+            "SUM(total_amount) AS total_sales, " +
+            "COUNT(*) AS order_count " +
+            "FROM orders GROUP BY YEAR(order_date)");
+            
+    } catch (SQLException e) {
+        System.err.println("Error creating database views: " + e.getMessage());
+    }
+}
+
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            new OrderSystem().setVisible(true);
+        });
+    }
+}

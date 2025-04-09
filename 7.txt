@@ -1,0 +1,127 @@
+package com.restaurant;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.sql.*;
+
+public class RegistrationForm extends JFrame {
+    private JTextField nameField, birthdayField, addressField, mobileField, emailField, usernameField;
+    private JPasswordField passwordField;
+    private JButton registerButton, backButton;
+
+    public RegistrationForm() {
+        setTitle("User Registration");
+        setSize(1000, 600);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        setLocationRelativeTo(null);
+        setLayout(null);
+
+        // Right Panel for Form
+        JPanel formPanel = new JPanel(null);
+        formPanel.setBounds(310, 10, 420, 460);
+        formPanel.setBackground(Color.WHITE);
+        formPanel.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200), 2));
+        add(formPanel);
+
+        // Title
+        JLabel titleLabel = new JLabel("Registration", SwingConstants.CENTER);
+        titleLabel.setBounds(50, 10, 320, 40);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 22));
+        formPanel.add(titleLabel);
+
+        // Labels and Fields
+        int yPosition = 60;
+        nameField = createLabeledTextField("Full Name", 50, yPosition, formPanel);
+        birthdayField = createLabeledTextField("Birthday (YYYY-MM-DD)", 50, yPosition += 50, formPanel);
+        addressField = createLabeledTextField("Address", 50, yPosition += 50, formPanel);
+        mobileField = createLabeledTextField("Mobile Number", 50, yPosition += 50, formPanel);
+        emailField = createLabeledTextField("Email", 50, yPosition += 50, formPanel);
+        usernameField = createLabeledTextField("Username", 50, yPosition += 50, formPanel);
+        passwordField = createLabeledPasswordField("Password", 50, yPosition += 50, formPanel);
+
+        // Buttons
+        registerButton = createStyledButton("Register", 50, yPosition += 50);
+        registerButton.addActionListener(e -> registerUser());
+        formPanel.add(registerButton);
+
+        backButton = createStyledButton("Back", 200, yPosition);
+        backButton.addActionListener(e -> {
+            new LoginSignup();
+            this.dispose();
+        });
+        formPanel.add(backButton);
+
+        setVisible(true);
+    }
+
+    private JTextField createLabeledTextField(String label, int x, int y, JPanel panel) {
+        JLabel fieldLabel = new JLabel(label);
+        fieldLabel.setBounds(x, y - 20, 300, 20);
+        panel.add(fieldLabel);
+
+        JTextField textField = new JTextField();
+        textField.setBounds(x, y, 300, 30);
+        textField.setFont(new Font("Arial", Font.PLAIN, 14));
+        textField.setBorder(BorderFactory.createLineBorder(new Color(150, 150, 150), 1));
+        panel.add(textField);
+        return textField;
+    }
+
+    private JPasswordField createLabeledPasswordField(String label, int x, int y, JPanel panel) {
+        JLabel fieldLabel = new JLabel(label);
+        fieldLabel.setBounds(x, y - 20, 300, 20);
+        panel.add(fieldLabel);
+
+        JPasswordField passwordField = new JPasswordField();
+        passwordField.setBounds(x, y, 300, 30);
+        passwordField.setFont(new Font("Arial", Font.PLAIN, 14));
+        passwordField.setBorder(BorderFactory.createLineBorder(new Color(150, 150, 150), 1));
+        panel.add(passwordField);
+        return passwordField;
+    }
+
+    private JButton createStyledButton(String text, int x, int y) {
+        JButton button = new JButton(text);
+        button.setBounds(x, y, 120, 35);
+        button.setFont(new Font("Arial", Font.BOLD, 14));
+        button.setBackground(new Color(33, 150, 243));
+        button.setForeground(Color.WHITE);
+        button.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
+        return button;
+    }
+
+    private void registerUser() {
+        String name = nameField.getText();
+        String birthday = birthdayField.getText();
+        String address = addressField.getText();
+        String mobile = mobileField.getText();
+        String email = emailField.getText();
+        String username = usernameField.getText();
+        String password = new String(passwordField.getPassword());
+
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            String query = "INSERT INTO users (name, birthday, address, mobile, email, username, password) VALUES (?, ?, ?, ?, ?, ?, ?)";
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setString(1, name);
+            stmt.setString(2, birthday);
+            stmt.setString(3, address);
+            stmt.setString(4, mobile);
+            stmt.setString(5, email);
+            stmt.setString(6, username);
+            stmt.setString(7, password);
+            stmt.executeUpdate();
+
+            JOptionPane.showMessageDialog(this, "Registration Successful! You can now log in.");
+            new LoginSignup();
+            this.dispose();
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage());
+        }
+    }
+
+    public static void main(String[] args) {
+        new RegistrationForm();
+    }
+}

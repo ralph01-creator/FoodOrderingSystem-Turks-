@@ -1,0 +1,118 @@
+package com.restaurant;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.sql.*;
+
+public class LoginSignup extends JFrame {
+    private JTextField usernameField;
+    private JPasswordField passwordField;
+    private JButton loginButton, signupButton;
+    private JCheckBox rememberMe;
+
+    public LoginSignup() {
+        setTitle("Login / Sign-Up");
+        setSize(1000, 600);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+        setLayout(null); // Use absolute positioning for custom design
+        
+        // Load background image
+        JLabel background = new JLabel(new ImageIcon("src/com/restaurant/images/turks.png")); 
+        background.setBounds(0, 0, 1000, 600);
+        add(background);
+
+        // Panel for login box
+        JPanel loginPanel = new JPanel();
+        loginPanel.setLayout(null);
+        loginPanel.setBounds(100, 230, 350, 300);
+        loginPanel.setBackground(new Color(255, 255, 255, 200)); // White with transparency
+        background.add(loginPanel);
+        
+        // Title
+        JLabel titleLabel = new JLabel("Login", SwingConstants.CENTER);
+        titleLabel.setBounds(70, 10, 220, 30);
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
+        loginPanel.add(titleLabel);
+
+        // Username section
+        JLabel usernameLabel = new JLabel("Username:");
+        usernameLabel.setBounds(70, 50, 220, 20);
+        usernameLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        loginPanel.add(usernameLabel);
+
+        usernameField = new JTextField();
+        usernameField.setBounds(70, 70, 220, 30);
+        usernameField.setBorder(BorderFactory.createLineBorder(Color.PINK, 2));
+        usernameField.setFont(new Font("Arial", Font.PLAIN, 16));
+        loginPanel.add(usernameField);
+
+        // Password section
+        JLabel passwordLabel = new JLabel("Password:");
+        passwordLabel.setBounds(70, 110, 220, 20);
+        passwordLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        loginPanel.add(passwordLabel);
+
+        passwordField = new JPasswordField();
+        passwordField.setBounds(70, 130, 220, 30);
+        passwordField.setBorder(BorderFactory.createLineBorder(Color.PINK, 2));
+        loginPanel.add(passwordField);
+
+        // Login Button
+        loginButton = new JButton("Login");
+        loginButton.setBounds(70, 170, 220, 40);
+        loginButton.setFont(new Font("Arial", Font.BOLD, 16));
+        loginButton.setBackground(new Color(128, 0, 128)); // Purple color
+        loginButton.setForeground(Color.WHITE);
+        loginButton.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
+        loginPanel.add(loginButton);
+
+        // Create Account
+        signupButton = new JButton("Create Account");
+        signupButton.setBounds(70, 230, 220, 30);
+        signupButton.setFont(new Font("Arial", Font.PLAIN, 14));
+        signupButton.setForeground(Color.DARK_GRAY);
+        signupButton.setBorderPainted(false);
+        signupButton.setContentAreaFilled(false);
+        loginPanel.add(signupButton);
+
+        // Event Listeners
+        loginButton.addActionListener(e -> loginUser());
+        signupButton.addActionListener(e -> signupUser());
+
+        setVisible(true);
+    }
+
+    private void loginUser() {
+        String username = usernameField.getText();
+        String password = new String(passwordField.getPassword());
+
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            String query = "SELECT * FROM users WHERE username=? AND password=?";
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setString(1, username);
+            stmt.setString(2, password);
+            ResultSet rs = stmt.executeQuery();
+
+            if (rs.next()) {
+                this.dispose(); // Close login window
+                new OrderSystem(); // Open order system
+            } else {
+                JOptionPane.showMessageDialog(this, "⚠️ Invalid Credentials!");
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    private void signupUser() {
+        new RegistrationForm(); // Open registration window
+        this.dispose(); // Close current login window
+    }
+
+    public static void main(String[] args) {
+        new LoginSignup();
+    }
+}
